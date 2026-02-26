@@ -7,7 +7,7 @@ venv/
 .env
 
 build/
-dist/converted_file
+dist/
 *.spec
 
 converted_file/
