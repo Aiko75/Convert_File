@@ -31,6 +31,7 @@ class TextConverterApp:
         self.root = root
         self.root.title("Text Converter Studio")
         self.root.geometry("980x680")
+        self._apply_window_icon()
 
         self.selected_source_files: List[Path] = []
 
@@ -53,6 +54,14 @@ class TextConverterApp:
         self.supported_source_exts = sorted({job.source_ext for job in self.jobs})
 
         self._build_ui()
+
+    def _apply_window_icon(self) -> None:
+        icon_path = Path(__file__).resolve().parent / "assets" / "converter_app.ico"
+        if icon_path.exists():
+            try:
+                self.root.iconbitmap(str(icon_path))
+            except Exception:
+                pass
 
     def _build_ui(self) -> None:
         container = ttk.Frame(self.root, padding=12)
