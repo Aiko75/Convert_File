@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -368,9 +369,17 @@ class TextConverterApp:
         pdf2docx = self._import_pdf2docx()
         converter = pdf2docx.Converter(str(source))
         try:
-            converter.convert(str(target), start=0, end=None)
+            converter.convert(
+                str(target),
+                start=0,
+                end=None,
+                delete_end_line_hyphen=True,
+                list_not_table=True,
+            )
         finally:
             converter.close()
+
+        self._postprocess_converted_pdf_docx(target)
 
     def docx_to_pdf(self, source: Path, target: Path) -> None:
         try:
@@ -703,6 +712,122 @@ class TextConverterApp:
                 return "AppUnicode", "AppUnicodeBold"
 
         return "Helvetica", "Helvetica-Bold"
+
+    def _postprocess_converted_pdf_docx(self, target: Path) -> None:
+        docx = self._import_docx()
+        document = docx.Document(target)
+
+        for paragraph in document.paragraphs:
+            self._clean_paragraph_runs(paragraph)
+
+        for table in list(document.tables):
+            self._clean_table_cell_runs(table)
+            if not self._is_suspicious_layout_table(table):
+                continue
+
+            lines = self._table_to_text_lines(table)
+            if lines:
+                for line in lines:
+                    self._insert_paragraph_before_table(table, line)
+
+            table._tbl.getparent().remove(table._tbl)
+
+        document.save(target)
+
+    def _clean_paragraph_runs(self, paragraph) -> None:
+        for run in paragraph.runs:
+            cleaned_text = self._normalize_extracted_text(run.text)
+            if cleaned_text != run.text:
+                run.text = cleaned_text
+
+    def _clean_table_cell_runs(self, table) -> None:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    self._clean_paragraph_runs(paragraph)
+
+    def _is_suspicious_layout_table(self, table) -> bool:
+        cell_values: List[str] = []
+        duplicate_sensitive_values: List[str] = []
+
+        for row in table.rows:
+            for cell in row.cells:
+                value = self._normalize_extracted_text(cell.text).strip()
+                if not value:
+                    continue
+                cell_values.append(value)
+                if self._is_meaningful_text(value):
+                    duplicate_sensitive_values.append(value.casefold())
+
+        if len(cell_values) < 6:
+            return False
+
+        if any(self._has_private_use_characters(value) for value in cell_values):
+            return True
+
+        if not duplicate_sensitive_values:
+            return False
+
+        unique_count = len(set(duplicate_sensitive_values))
+        duplicate_ratio = 1.0 - (unique_count / len(duplicate_sensitive_values))
+        return duplicate_ratio >= 0.30
+
+    def _table_to_text_lines(self, table) -> List[str]:
+        lines: List[str] = []
+
+        for row in table.rows:
+            row_parts: List[str] = []
+            seen_parts = set()
+
+            for cell in row.cells:
+                value = self._normalize_extracted_text(cell.text).strip()
+                if not value or not self._is_meaningful_text(value):
+                    continue
+
+                key = value.casefold()
+                if key in seen_parts:
+                    continue
+
+                seen_parts.add(key)
+                row_parts.append(value)
+
+            if not row_parts:
+                continue
+
+            line = " | ".join(row_parts)
+            if not lines or lines[-1] != line:
+                lines.append(line)
+
+        return lines
+
+    def _insert_paragraph_before_table(self, table, text: str) -> None:
+        from docx.oxml import OxmlElement  # type: ignore
+        from docx.text.paragraph import Paragraph  # type: ignore
+
+        paragraph_element = OxmlElement("w:p")
+        table._tbl.addprevious(paragraph_element)
+        paragraph = Paragraph(paragraph_element, table._parent)
+        paragraph.add_run(text)
+
+    def _normalize_extracted_text(self, text: str) -> str:
+        if not text:
+            return text
+
+        cleaned = text.replace("\\t", " ")
+        cleaned = cleaned.replace("\t", " ")
+        cleaned = cleaned.replace("\u00a0", " ")
+        cleaned = "".join(
+            character for character in cleaned if unicodedata.category(character) != "Co"
+        )
+        cleaned = re.sub(r"[ ]{2,}", " ", cleaned)
+        cleaned = re.sub(r"\n[ ]+", "\n", cleaned)
+        return cleaned
+
+    def _has_private_use_characters(self, text: str) -> bool:
+        return any(unicodedata.category(character) == "Co" for character in text)
+
+    def _is_meaningful_text(self, text: str) -> bool:
+        return any(character.isalnum() for character in text)
 
     @staticmethod
     def _import_docx():
