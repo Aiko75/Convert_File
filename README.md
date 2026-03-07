@@ -27,13 +27,17 @@ Khi chạy EXE, app vẫn lưu trong thư mục `converted_file/workspace` cạn
 
 ## Cài đặt
 
+Từ thư mục gốc `Random_Essential`, chạy:
+
 ```bash
+cd Convert_File
 pip install -r requirements.txt
 ```
 
 ## Chạy app
 
 ```bash
+cd Convert_File
 python converter_app.py
 ```
 

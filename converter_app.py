@@ -57,7 +57,10 @@ class TextConverterApp:
         self._build_ui()
 
     def _apply_window_icon(self) -> None:
-        icon_path = Path(__file__).resolve().parent / "assets" / "converter_app.ico"
+        if getattr(sys, "frozen", False):
+            icon_path = Path(sys.executable).resolve()
+        else:
+            icon_path = Path(__file__).resolve().parent / "assets" / "converter_app.ico"
         if icon_path.exists():
             try:
                 self.root.iconbitmap(str(icon_path))
